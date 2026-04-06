@@ -3,6 +3,7 @@ import re
 import pandas as pd
 import requests
 from urllib.parse import urlparse
+from io import BytesIO
 
 # --- 1. CONFIGURAÇÃO DA PÁGINA (Sempre no topo) ---
 st.set_page_config(
@@ -109,7 +110,6 @@ if st.button("🚀 INICIAR VARREDURA TOTAL"):
         counter_box = st.empty()
 
         for idx, loc in enumerate(locais):
-            # VOLTAMOS PARA OS DORKS QUE DERAM OS 779 LEADS:
             queries = [
                 f'{nicho} {loc} email',
                 f'{nicho} {loc} contato',
@@ -146,12 +146,44 @@ if st.button("🚀 INICIAR VARREDURA TOTAL"):
         st.session_state.leads_data = all_found
         st.success(f"✅ FINALIZADO! {len(all_found)} leads encontrados.")
 
-# --- 6. EXIBIÇÃO ---
+# --- 6. EXIBIÇÃO E DOWNLOAD EXCEL (.xlsx) ---
 if 'leads_data' in st.session_state and st.session_state.leads_data:
     df_raw = pd.DataFrame(st.session_state.leads_data)
-    df_final = df_raw[~df_raw['Dominio'].isin(PROVIDERS)].copy() if filtro_corp else df_raw.copy()
+    
+    # Aplica o filtro corporativo se ativo
+    df_proc = df_raw[~df_raw['Dominio'].isin(PROVIDERS)].copy() if filtro_corp else df_raw.copy()
+    
+    # Adicionando colunas extras e numeração
+    df_proc.insert(0, 'Nº', range(1, len(df_proc) + 1))
+    df_proc['Conta de email'] = ""
+    df_proc['Senha'] = ""
+    
+    # Seleção da ordem final das colunas
+    df_final = df_proc[['Nº', 'Email', 'Empresa', 'URL', 'Conta de email', 'Senha']]
     
     st.divider()
     st.subheader(f"📊 Planilha: {len(df_final)} leads exibidos")
-    st.dataframe(df_final.drop(columns=['Dominio']), use_container_width=True)
-    st.download_button("📥 Baixar Leads CSV", df_final.to_csv(index=False).encode('utf-8'), "leads.csv", "text/csv")
+    st.dataframe(df_final, use_container_width=True)
+    
+    # Criando arquivo Excel com formatação personalizada
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_final.to_excel(writer, index=False, sheet_name='Leads')
+        
+        # AJUSTE DE LARGURA DAS COLUNAS (Ajustado para serem mais largas)
+        worksheet = writer.sheets['Leads']
+        worksheet.column_dimensions['A'].width = 6   # Nº
+        worksheet.column_dimensions['B'].width = 35  # Email
+        worksheet.column_dimensions['C'].width = 45  # Empresa
+        worksheet.column_dimensions['D'].width = 55  # URL
+        worksheet.column_dimensions['E'].width = 35  # Conta de email (Ficou mais larga)
+        worksheet.column_dimensions['F'].width = 25  # Senha (Ficou mais larga)
+    
+    excel_data = output.getvalue()
+    
+    st.download_button(
+        label="📥 Baixar Leads em EXCEL (.xlsx)",
+        data=excel_data,
+        file_name=f"leads_{nicho}_{cidade}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
